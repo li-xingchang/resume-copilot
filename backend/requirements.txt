@@ -10,4 +10,5 @@ boto3==1.35.79
 pydantic==2.10.3
 pydantic-settings==2.6.1
 python-multipart==0.0.18  # for UploadFile
-httpx==0.28.1             # for test client
+httpx==0.28.1             # JWKS fetching + test client
+python-jose[cryptography]==3.3.0  # JWT verification in auth.py

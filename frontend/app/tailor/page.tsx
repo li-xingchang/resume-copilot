@@ -26,7 +26,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useUser } from "@clerk/nextjs"; // swap for next-auth session if using NextAuth
+import { useAuth, useUser } from "@clerk/nextjs";
 
 // ---------------------------------------------------------------------------
 // Types (mirror backend schemas/api.py)
@@ -83,11 +83,15 @@ const API = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
 async function fetchTailor(
   userId: string,
   jdHash: string,
-  focusRequirement?: string
+  token: string,
+  focusRequirement?: string,
 ): Promise<TailorResponse> {
   const res = await fetch(`${API}/tailor`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify({
       user_id: userId,
       jd_hash: jdHash,
@@ -104,17 +108,23 @@ async function fetchTailor(
 async function approveVersion(
   userId: string,
   versionId: string,
-  jdHash: string
+  jdHash: string,
+  company: string,
+  platform: string,
+  token: string,
 ): Promise<void> {
   const res = await fetch(`${API}/approve`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify({
       user_id: userId,
       version_id: versionId,
       jd_hash: jdHash,
-      company: "Unknown", // enriched in a real flow from JD metadata
-      platform: "greenhouse",
+      company,
+      platform,
       target_domain: window.location.hostname,
     }),
   });
@@ -207,11 +217,15 @@ function ScoreBadge({
 
 export default function TailorPage() {
   const { user, isLoaded } = useUser();
+  const { getToken } = useAuth();
   const searchParams = useSearchParams();
   const router = useRouter();
 
   const jdHash = searchParams.get("jd_hash");
   const focus = searchParams.get("focus") ?? undefined;
+  // Company and platform passed by the extension when opening this tab
+  const company = searchParams.get("company") ?? "Unknown";
+  const platform = searchParams.get("platform") ?? "greenhouse";
 
   const [scoreData, setScoreData] = useState<ScoreData | null>(null);
   const [tailor, setTailor] = useState<TailorResponse | null>(null);
@@ -239,14 +253,16 @@ export default function TailorPage() {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchTailor(userId, jdHash, focus);
+      const token = await getToken();
+      if (!token) throw new Error("Not authenticated");
+      const result = await fetchTailor(userId, jdHash, token, focus);
       setTailor(result);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [userId, jdHash, focus]);
+  }, [userId, jdHash, focus, getToken]);
 
   // Auto-run tailor on mount
   useEffect(() => {
@@ -259,7 +275,9 @@ export default function TailorPage() {
     if (!userId || !tailor || !jdHash) return;
     setApproving(true);
     try {
-      await approveVersion(userId, tailor.version_id, jdHash);
+      const token = await getToken();
+      if (!token) throw new Error("Not authenticated");
+      await approveVersion(userId, tailor.version_id, jdHash, company, platform, token);
       setApproved(true);
       setTimeout(() => router.push("/graph"), 1500);
     } catch (e) {

@@ -16,8 +16,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_verified_user_id
 from app.database import get_db
 from app.models.tables import BulletPerformance, CareerFact, JDCache, ResumeVersion, User
+from app.routers.ingest import _upsert_user
 from app.schemas.api import DiffItem, TailorRequest, TailorResponse
 from app.services import embeddings as emb_svc
 from app.services import llm as llm_svc
@@ -128,10 +130,14 @@ async def _retrieve_and_rerank(
 
 
 @router.post("/tailor", response_model=TailorResponse)
-async def tailor(req: TailorRequest, db: AsyncSession = Depends(get_db)) -> TailorResponse:
-    user = await db.get(User, req.user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+async def tailor(
+    req: TailorRequest,
+    db: AsyncSession = Depends(get_db),
+    clerk_id: str = Depends(get_verified_user_id),
+) -> TailorResponse:
+    user_id = await _upsert_user(db, clerk_id)
+    if req.user_id != user_id:
+        raise HTTPException(status_code=403, detail="user_id does not match token")
 
     cached_jd = await db.get(JDCache, req.jd_hash)
     if not cached_jd:

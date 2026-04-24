@@ -15,8 +15,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_verified_user_id
 from app.database import get_db
 from app.models.tables import CareerFact, JDCache, User
+from app.routers.ingest import _upsert_user
 from app.schemas.api import GapItem, ScoreRequest, ScoreResponse
 from app.services import embeddings as emb_svc
 from app.services import llm as llm_svc
@@ -87,10 +89,17 @@ def _mock_cohort_note(overall: int) -> str:
 
 
 @router.post("/score", response_model=ScoreResponse)
-async def score(req: ScoreRequest, db: AsyncSession = Depends(get_db)) -> ScoreResponse:
-    user = await db.get(User, req.user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+async def score(
+    req: ScoreRequest,
+    db: AsyncSession = Depends(get_db),
+    clerk_id: str = Depends(get_verified_user_id),
+) -> ScoreResponse:
+    # Resolve clerk_id → internal UUID; upsert so scoring works even before first ingest
+    user_id = await _upsert_user(db, clerk_id)
+
+    # Prevent a user from scoring facts belonging to another user
+    if req.user_id != user_id:
+        raise HTTPException(status_code=403, detail="user_id does not match token")
 
     jd_hash = hash_text(req.jd_text)
     cached = False

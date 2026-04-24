@@ -12,8 +12,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_verified_user_id
 from app.database import get_db
 from app.models.tables import Application, AuditLog, CareerFact, ResumeVersion, User
+from app.routers.ingest import _upsert_user
 from app.schemas.api import (
     ApproveRequest,
     ApproveResponse,
@@ -59,10 +61,11 @@ async def get_fact(fact_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> di
 
 
 @router.get("/versions", response_model=VersionGraphResponse)
-async def list_versions(user_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> VersionGraphResponse:
-    user = await db.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+async def list_versions(
+    db: AsyncSession = Depends(get_db),
+    clerk_id: str = Depends(get_verified_user_id),
+) -> VersionGraphResponse:
+    user_id = await _upsert_user(db, clerk_id)
 
     rows = await db.execute(
         select(ResumeVersion)
@@ -113,10 +116,17 @@ async def get_version(version_id: uuid.UUID, db: AsyncSession = Depends(get_db))
 
 
 @router.post("/approve", response_model=ApproveResponse)
-async def approve(req: ApproveRequest, db: AsyncSession = Depends(get_db)) -> ApproveResponse:
+async def approve(
+    req: ApproveRequest,
+    db: AsyncSession = Depends(get_db),
+    clerk_id: str = Depends(get_verified_user_id),
+) -> ApproveResponse:
     """Extension calls this when the user clicks 'Approve & Pre-fill'."""
+    user_id = await _upsert_user(db, clerk_id)
+    if req.user_id != user_id:
+        raise HTTPException(status_code=403, detail="user_id does not match token")
     version = await db.get(ResumeVersion, req.version_id)
-    if not version or str(version.user_id) != str(req.user_id):
+    if not version or version.user_id != user_id:
         raise HTTPException(status_code=404, detail="Version not found")
 
     application = Application(
@@ -145,8 +155,13 @@ async def approve(req: ApproveRequest, db: AsyncSession = Depends(get_db)) -> Ap
 
 
 @router.post("/audit", status_code=204)
-async def audit(req: AuditRequest, db: AsyncSession = Depends(get_db)) -> None:
+async def audit(
+    req: AuditRequest,
+    db: AsyncSession = Depends(get_db),
+    clerk_id: str = Depends(get_verified_user_id),
+) -> None:
     """Extension background.ts posts individual field-fill events here."""
+    user_id = await _upsert_user(db, clerk_id)
     db.add(
         AuditLog(
             user_id=req.user_id,
