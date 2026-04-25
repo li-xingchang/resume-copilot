@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 POST /tailor — retrieve, rerank, and rewrite resume bullets using only verified facts.
 

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Thin wrapper around OpenAI embeddings with in-process LRU cache.
 text-embedding-3-small outputs 1536 dimensions, matching the vector column.

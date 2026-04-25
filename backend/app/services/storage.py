@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 S3 storage service for PDF resume versions.
 Uses presigned URLs so the frontend can render PDFs without proxying through the API.

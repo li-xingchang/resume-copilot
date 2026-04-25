@@ -1,10 +1,10 @@
 """
 Pydantic v2 request/response schemas for all API endpoints.
-Mirrors the product spec exactly so the frontend can be typed end-to-end.
+Compatible with Python 3.9+ (uses Optional instead of X | None syntax).
 """
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -17,14 +17,14 @@ class CareerFactOut(BaseModel):
     id: uuid.UUID
     type: Literal["role", "achievement", "skill", "education", "certification", "project"]
     canonical_text: str
-    metric_json: dict | None
+    metric_json: Optional[dict]
     is_verified: bool
-    source_section: str | None
+    source_section: Optional[str]
 
 
 class IngestResponse(BaseModel):
     fact_count: int
-    facts: list[CareerFactOut]
+    facts: List[CareerFactOut]
 
 
 # ---------------------------------------------------------------------------
@@ -43,19 +43,19 @@ class GapItem(BaseModel):
     type: Literal["must", "nice"]
     weight: int = Field(ge=1, le=3)
     evidence_strength: float = Field(ge=0.0, le=1.0)
-    fact_id: uuid.UUID | None   # best matching fact, if any
-    gap_reason: str             # "No fact found" | "Weak match" | "Missing metric"
+    fact_id: Optional[uuid.UUID]
+    gap_reason: str
 
 
 class ScoreResponse(BaseModel):
-    overall: int                # rounded to nearest 5
-    coverage: int               # weighted % of 'must' reqs with sim > 0.75
-    seniority_fit: int          # 80 for MVP
-    evidence_gap: int           # % requirements where best fact has metric_json
-    gaps: list[GapItem]
+    overall: int
+    coverage: int
+    seniority_fit: int
+    evidence_gap: int
+    gaps: List[GapItem]
     cohort_note: str
     jd_hash: str
-    cached: bool = False        # True if requirements were served from jd_cache
+    cached: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -65,22 +65,22 @@ class ScoreResponse(BaseModel):
 class TailorRequest(BaseModel):
     user_id: uuid.UUID
     jd_hash: str
-    focus_requirement: str | None = None    # if set, boost this req in reranking
+    focus_requirement: Optional[str] = None
 
 
 class DiffItem(BaseModel):
     section: str
     bullet_text: str
-    fact_ids: list[uuid.UUID]               # citations for this bullet
+    fact_ids: List[uuid.UUID]
     action: Literal["added", "removed", "modified"]
-    original_text: str | None = None        # for 'modified' items
+    original_text: Optional[str] = None
 
 
 class TailorResponse(BaseModel):
     version_id: uuid.UUID
-    diff: list[DiffItem]
+    diff: List[DiffItem]
     markdown_content: str
-    pdf_url: str | None
+    pdf_url: Optional[str]
     citation_count: int
 
 
@@ -90,21 +90,21 @@ class TailorResponse(BaseModel):
 
 class VersionNode(BaseModel):
     id: uuid.UUID
-    parent_id: uuid.UUID | None
-    jd_hash: str | None
-    company: str | None
-    title: str | None
+    parent_id: Optional[uuid.UUID]
+    jd_hash: Optional[str]
+    company: Optional[str]
+    title: Optional[str]
     created_at: datetime
-    diff_summary: str           # e.g. "+3 bullets, -1 bullet, 2 modified"
-    application_status: str | None  # pulled from applications table
+    diff_summary: str
+    application_status: Optional[str]
 
 
 class VersionGraphResponse(BaseModel):
-    nodes: list[VersionNode]
+    nodes: List[VersionNode]
 
 
 # ---------------------------------------------------------------------------
-# /approve  (extension calls this before pre-filling)
+# /approve
 # ---------------------------------------------------------------------------
 
 class ApproveRequest(BaseModel):
@@ -122,12 +122,12 @@ class ApproveResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# /audit  (extension background.ts posts individual field fills)
+# /audit
 # ---------------------------------------------------------------------------
 
 class AuditRequest(BaseModel):
     user_id: uuid.UUID
-    application_id: uuid.UUID | None
+    application_id: Optional[uuid.UUID] = None
     action_type: str
     target_domain: str
-    metadata: dict | None = None
+    metadata: Optional[dict] = None

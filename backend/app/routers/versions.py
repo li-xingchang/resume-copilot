@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 GET /versions — return the version graph for the timeline UI.
 GET /versions/{version_id} — return a single version with full diff.
@@ -8,7 +9,7 @@ POST /audit — append an audit log entry (called by extension background.ts).
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -154,12 +155,12 @@ async def approve(
     return ApproveResponse(application_id=application.id, status="pending")
 
 
-@router.post("/audit", status_code=204)
+@router.post("/audit", status_code=204, response_model=None)
 async def audit(
     req: AuditRequest,
     db: AsyncSession = Depends(get_db),
     clerk_id: str = Depends(get_verified_user_id),
-) -> None:
+) -> Response:
     """Extension background.ts posts individual field-fill events here."""
     user_id = await _upsert_user(db, clerk_id)
     db.add(
@@ -171,3 +172,4 @@ async def audit(
             metadata_json=req.metadata,
         )
     )
+    return Response(status_code=204)

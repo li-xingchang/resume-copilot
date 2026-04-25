@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 LLM service: GPT-4o-mini calls for requirement extraction and resume tailoring.
 
