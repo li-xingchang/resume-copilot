@@ -61,6 +61,28 @@ async def get_fact(fact_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> di
     }
 
 
+@router.patch("/facts/{fact_id}", response_model=dict)
+async def update_fact(
+    fact_id: uuid.UUID,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Inline edit for onboarding verify step. Allows updating canonical_text."""
+    fact = await db.get(CareerFact, fact_id)
+    if not fact:
+        raise HTTPException(status_code=404, detail="Fact not found")
+    if "canonical_text" in body and body["canonical_text"].strip():
+        fact.canonical_text = body["canonical_text"].strip()
+    if "is_verified" in body:
+        fact.is_verified = bool(body["is_verified"])
+    await db.flush()
+    return {
+        "id": str(fact.id),
+        "canonical_text": fact.canonical_text,
+        "is_verified": fact.is_verified,
+    }
+
+
 @router.get("/versions", response_model=VersionGraphResponse)
 async def list_versions(
     db: AsyncSession = Depends(get_db),
@@ -124,14 +146,12 @@ async def approve(
 ) -> ApproveResponse:
     """Extension calls this when the user clicks 'Approve & Pre-fill'."""
     user_id = await _upsert_user(db, clerk_id)
-    if req.user_id != user_id:
-        raise HTTPException(status_code=403, detail="user_id does not match token")
     version = await db.get(ResumeVersion, req.version_id)
     if not version or version.user_id != user_id:
         raise HTTPException(status_code=404, detail="Version not found")
 
     application = Application(
-        user_id=req.user_id,
+        user_id=user_id,
         version_id=req.version_id,
         jd_hash=req.jd_hash,
         company=req.company,
@@ -144,7 +164,7 @@ async def approve(
     # Audit the approval
     db.add(
         AuditLog(
-            user_id=req.user_id,
+            user_id=user_id,
             application_id=application.id,
             action_type="approved",
             target_domain=req.target_domain,
@@ -165,7 +185,7 @@ async def audit(
     user_id = await _upsert_user(db, clerk_id)
     db.add(
         AuditLog(
-            user_id=req.user_id,
+            user_id=user_id,
             application_id=req.application_id,
             action_type=req.action_type,
             target_domain=req.target_domain,

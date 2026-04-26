@@ -58,14 +58,10 @@ async def _upsert_user(db: AsyncSession, clerk_id: str, email: str = "") -> uuid
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest(
     file: UploadFile = File(...),
-    email: str = Form(""),
     db: AsyncSession = Depends(get_db),
-    # TODO: re-enable auth once Clerk is configured
-    # clerk_id: str = Depends(get_verified_user_id),
+    clerk_id: str = Depends(get_verified_user_id),
 ) -> IngestResponse:
-    # Dev mode: use a fixed test user ID until Clerk is wired up
-    clerk_id = "dev-user"
-    user_id = await _upsert_user(db, clerk_id, email or "dev@test.com")
+    user_id = await _upsert_user(db, clerk_id)
 
     data = await file.read()
     content_type = file.content_type or ""

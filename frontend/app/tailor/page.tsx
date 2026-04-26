@@ -26,7 +26,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useAuth, useUser } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 
 // ---------------------------------------------------------------------------
 // Types (mirror backend schemas/api.py)
@@ -78,25 +78,21 @@ interface ScoreData {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const API = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+import { apiFetch } from "@/lib/api";
 
 async function fetchTailor(
-  userId: string,
   jdHash: string,
-  token: string,
+  token: string | null,
   focusRequirement?: string,
 ): Promise<TailorResponse> {
-  const res = await fetch(`${API}/tailor`, {
+  const res = await apiFetch("/tailor", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      user_id: userId,
       jd_hash: jdHash,
       focus_requirement: focusRequirement ?? null,
     }),
+    token,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Unknown error" }));
@@ -106,27 +102,23 @@ async function fetchTailor(
 }
 
 async function approveVersion(
-  userId: string,
   versionId: string,
   jdHash: string,
   company: string,
   platform: string,
-  token: string,
+  token: string | null,
 ): Promise<void> {
-  const res = await fetch(`${API}/approve`, {
+  const res = await apiFetch("/approve", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      user_id: userId,
       version_id: versionId,
       jd_hash: jdHash,
       company,
       platform,
-      target_domain: window.location.hostname,
+      target_domain: typeof window !== "undefined" ? window.location.hostname : "",
     }),
+    token,
   });
   if (!res.ok) throw new Error("Approval failed");
 }
@@ -216,8 +208,7 @@ function ScoreBadge({
 // ---------------------------------------------------------------------------
 
 export default function TailorPage() {
-  const { user, isLoaded } = useUser();
-  const { getToken } = useAuth();
+  const { getToken, isLoaded, userId } = useAuth();
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -233,8 +224,6 @@ export default function TailorPage() {
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [approved, setApproved] = useState(false);
-
-  const userId = user?.id;
 
   // Load score data from sessionStorage (extension sets this before opening tab)
   useEffect(() => {
@@ -254,15 +243,14 @@ export default function TailorPage() {
     setError(null);
     try {
       const token = await getToken();
-      if (!token) throw new Error("Not authenticated");
-      const result = await fetchTailor(userId, jdHash, token, focus);
+      const result = await fetchTailor(jdHash, token, focus);
       setTailor(result);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [userId, jdHash, focus, getToken]);
+  }, [jdHash, focus, getToken]);
 
   // Auto-run tailor on mount
   useEffect(() => {
@@ -276,8 +264,7 @@ export default function TailorPage() {
     setApproving(true);
     try {
       const token = await getToken();
-      if (!token) throw new Error("Not authenticated");
-      await approveVersion(userId, tailor.version_id, jdHash, company, platform, token);
+      await approveVersion(tailor.version_id, jdHash, company, platform, token);
       setApproved(true);
       setTimeout(() => router.push("/graph"), 1500);
     } catch (e) {

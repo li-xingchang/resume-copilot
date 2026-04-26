@@ -32,7 +32,6 @@ class IngestResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class ScoreRequest(BaseModel):
-    user_id: uuid.UUID
     jd_text: str = Field(..., min_length=50)
     company: str
     title: str
@@ -56,6 +55,7 @@ class ScoreResponse(BaseModel):
     cohort_note: str
     jd_hash: str
     cached: bool = False
+    seniority_detail: Optional[dict] = None  # breakdown: yoe, level, mgmt scores
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +63,6 @@ class ScoreResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class TailorRequest(BaseModel):
-    user_id: uuid.UUID
     jd_hash: str
     focus_requirement: Optional[str] = None
 
@@ -108,7 +107,6 @@ class VersionGraphResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class ApproveRequest(BaseModel):
-    user_id: uuid.UUID
     version_id: uuid.UUID
     jd_hash: str
     company: str
@@ -126,7 +124,6 @@ class ApproveResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class AuditRequest(BaseModel):
-    user_id: uuid.UUID
     application_id: Optional[uuid.UUID] = None
     action_type: str
     target_domain: str

@@ -1,15 +1,15 @@
 /**
- * Greenhouse content script — Resume Co-Pilot score widget.
+ * Resume Co-Pilot content script — works on any careers/job page.
  *
  * Lifecycle:
- *   1. On page load, detect if this is a Greenhouse job application page.
+ *   1. Run on every page; detect if it looks like a job listing.
  *   2. Extract JD text, company, title from the DOM.
  *   3. POST /score → inject floating widget showing match breakdown + gaps.
  *   4. "Fix" buttons open /tailor in the dashboard.
  *   5. "Approve & Pre-fill" calls /approve, then fills input fields field-by-field
  *      with a random 8-22s delay between each (enforced by background.ts messaging).
  *
- * Guardrails (hard requirements from spec):
+ * Guardrails:
  *   - NEVER call .click() on a submit button.
  *   - NEVER auto-submit. User must click Submit themselves.
  *   - Log every field fill to /audit via background message.
@@ -21,16 +21,45 @@ import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 // ---------------------------------------------------------------------------
-// Plasmo config — runs on Greenhouse application pages only
+// Plasmo config — runs on all pages; widget only mounts on job pages
 // ---------------------------------------------------------------------------
 
 export const config: PlasmoCSConfig = {
-  matches: [
-    "https://*.greenhouse.io/applications/*",
-    "https://boards.greenhouse.io/*/jobs/*",
-  ],
+  matches: ["<all_urls>"],
   run_at: "document_idle",
 };
+
+// ---------------------------------------------------------------------------
+// Job page detection — heuristics to decide if we should show the widget
+// ---------------------------------------------------------------------------
+
+function isJobPage(): boolean {
+  const url = window.location.href.toLowerCase();
+  const title = document.title.toLowerCase();
+  const bodyText = document.body.innerText.slice(0, 3000).toLowerCase();
+
+  // URL signals
+  const urlSignals = [
+    "jobs", "careers", "apply", "job", "position", "opening",
+    "greenhouse.io", "lever.co", "workday.com", "ashbyhq.com",
+    "smartrecruiters.com", "workable.com", "bamboohr.com",
+    "icims.com", "taleo.net", "myworkdayjobs.com", "jobvite.com",
+    "recruitee.com", "dover.com", "rippling.com",
+  ];
+
+  // Page content signals
+  const contentSignals = [
+    "job description", "responsibilities", "qualifications", "requirements",
+    "about the role", "what you'll do", "what we're looking for",
+    "apply now", "submit application", "years of experience",
+  ];
+
+  const hasUrlSignal = urlSignals.some((s) => url.includes(s));
+  const hasTitleSignal = ["job", "role", "engineer", "manager", "analyst", "designer", "director"].some((s) => title.includes(s));
+  const hasContentSignal = contentSignals.filter((s) => bodyText.includes(s)).length >= 2;
+
+  return hasUrlSignal || (hasTitleSignal && hasContentSignal);
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -613,13 +642,15 @@ function ScorePill({ label, value }: { label: string; value: number }) {
 }
 
 // ---------------------------------------------------------------------------
-// Mount the widget
+// Mount the widget — only on pages that look like job listings
 // ---------------------------------------------------------------------------
 
-const container = document.createElement("div");
-container.id = "resume-copilot-root";
-document.body.appendChild(container);
-const root = createRoot(container);
-root.render(<ScoreWidget />);
+if (isJobPage()) {
+  const container = document.createElement("div");
+  container.id = "resume-copilot-root";
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  root.render(<ScoreWidget />);
+}
 
 export default ScoreWidget;

@@ -65,12 +65,24 @@ const ACTION_BADGE: Record<DiffAction, { label: string; variant: "default" | "se
 
 function BulletCard({ item }: { item: DiffItem }) {
   const badge = ACTION_BADGE[item.action];
+  const isGap = item.fact_ids.length === 0;
+
   return (
-    <div className={cn("rounded-md px-4 py-3 text-sm space-y-2", ACTION_STYLES[item.action])}>
+    <div
+      className={cn(
+        "rounded-md px-4 py-3 text-sm space-y-2",
+        isGap
+          ? "bg-red-50 border-l-4 border-l-red-500"
+          : ACTION_STYLES[item.action],
+      )}
+    >
       {/* Action label + citations row */}
       <div className="flex items-center gap-2 flex-wrap">
-        <Badge variant={badge.variant} className="text-[10px] px-1.5 py-0">
-          {badge.label}
+        <Badge
+          variant={isGap ? "destructive" : badge.variant}
+          className="text-[10px] px-1.5 py-0"
+        >
+          {isGap ? "⚠ Gap" : badge.label}
         </Badge>
         {item.fact_ids.map((fid) => (
           <CitationBadge key={fid} factId={fid} />
@@ -84,7 +96,9 @@ function BulletCard({ item }: { item: DiffItem }) {
         </p>
       )}
 
-      <p className="leading-relaxed">{item.bullet_text}</p>
+      <p className={cn("leading-relaxed", isGap && "text-red-700")}>
+        {item.bullet_text}
+      </p>
     </div>
   );
 }

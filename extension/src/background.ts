@@ -89,7 +89,8 @@ chrome.runtime.onMessage.addListener(
   ) => {
     if (message.type === "GET_USER_ID") {
       chrome.storage.local.get("userId", (res) => {
-        sendResponse(res.userId ?? null);
+        // Dev mode fallback: use hardcoded user ID when Clerk is not configured
+        sendResponse(res.userId ?? "f1a97723-3ab7-5c6a-88d4-d433a7635a43");
       });
       return true; // keep channel open for async response
     }

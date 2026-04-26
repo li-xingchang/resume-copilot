@@ -24,22 +24,33 @@ _client = AsyncOpenAI(api_key=settings.openai_api_key)
 # ---------------------------------------------------------------------------
 
 EXTRACT_SYSTEM = """You are a technical recruiter parsing a job description.
-Extract 5-8 requirements. For each, output JSON with:
+Return a JSON object with two keys:
+
+"requirements": array of 5-8 objects, each with:
   id: (uuid v4),
   text: (concise 1-sentence requirement),
   type: "must" | "nice",
   weight: 1-3  (1=nice-to-have, 3=critical gate)
 
-Return ONLY a JSON array. No extra text."""
+"seniority": object with:
+  required_yoe: minimum years of experience as integer (null if not specified),
+  level: one of "intern" | "junior" | "mid" | "senior" | "staff" | "principal" | "manager" | "director" | "vp" | "executive"
+         (infer from language: "senior"→senior, "lead"→staff, "director"→director, "VP"→vp, etc.),
+  is_manager: true if role requires managing direct reports
+
+Return ONLY valid JSON. No extra text."""
 
 EXTRACT_USER = """Job Description:
 {jd_text}
 
-Extract 5-8 requirements as a JSON array."""
+Extract requirements and seniority as a JSON object."""
 
 
-async def extract_requirements(jd_text: str) -> list[dict]:
-    """Extract structured requirements from raw JD text via GPT-4o-mini."""
+async def extract_requirements(jd_text: str) -> dict:
+    """
+    Extract structured requirements AND seniority metadata from raw JD text.
+    Returns {"requirements": [...], "seniority": {...}}
+    """
     response = await _client.chat.completions.create(
         model=settings.chat_model,
         messages=[
@@ -48,21 +59,84 @@ async def extract_requirements(jd_text: str) -> list[dict]:
         ],
         temperature=0.1,
         response_format={"type": "json_object"},
-        max_tokens=1000,
+        max_tokens=1200,
     )
     raw = response.choices[0].message.content or "{}"
     parsed = json.loads(raw)
 
-    # The model sometimes wraps the array in {"requirements": [...]}
-    if isinstance(parsed, dict):
-        parsed = next(iter(parsed.values()))
+    # Normalise: ensure top-level keys exist
+    requirements = parsed.get("requirements", [])
+    seniority = parsed.get("seniority", {})
 
-    # Ensure every item has a valid UUID
-    for item in parsed:
+    # If model returned a flat array instead, recover gracefully
+    if isinstance(parsed, list):
+        requirements = parsed
+        seniority = {}
+
+    # Ensure every requirement has a valid UUID
+    for item in requirements:
         if "id" not in item or not item["id"]:
             item["id"] = str(uuid.uuid4())
 
-    return parsed
+    return {"requirements": requirements, "seniority": seniority}
+
+
+# ---------------------------------------------------------------------------
+# User seniority inference
+# ---------------------------------------------------------------------------
+
+SENIORITY_SYSTEM = """You are analysing a professional's career facts to infer seniority.
+Return a JSON object with:
+  inferred_yoe: estimated total years of professional experience as integer,
+  highest_level: the highest seniority level reached, one of:
+    "intern" | "junior" | "mid" | "senior" | "staff" | "principal" | "manager" | "director" | "vp" | "executive",
+  is_manager: true if they have managed direct reports
+
+Be conservative — infer from titles, scope, and tenure clues in the facts.
+Return ONLY valid JSON."""
+
+SENIORITY_USER = """Career facts:
+{facts_json}
+
+Infer seniority profile as a JSON object."""
+
+
+async def infer_user_seniority(facts: list[dict]) -> dict:
+    """
+    Infer years-of-experience, seniority level, and management status from
+    a user's career facts. Called once per user and cached in-process.
+    """
+    # Only use role/achievement facts — skills/education don't signal seniority
+    relevant = [
+        f for f in facts
+        if f.get("type") in ("role", "achievement", "project")
+    ][:30]  # cap to avoid token overflow
+
+    if not relevant:
+        return {"inferred_yoe": 0, "highest_level": "mid", "is_manager": False}
+
+    response = await _client.chat.completions.create(
+        model=settings.chat_model,
+        messages=[
+            {"role": "system", "content": SENIORITY_SYSTEM},
+            {"role": "user", "content": SENIORITY_USER.format(
+                facts_json=json.dumps(
+                    [{"type": f["type"], "canonical_text": f["canonical_text"]} for f in relevant],
+                    indent=2,
+                )[:4000]
+            )},
+        ],
+        temperature=0.1,
+        response_format={"type": "json_object"},
+        max_tokens=200,
+    )
+    raw = response.choices[0].message.content or "{}"
+    result = json.loads(raw)
+    return {
+        "inferred_yoe": int(result.get("inferred_yoe") or 0),
+        "highest_level": result.get("highest_level", "mid"),
+        "is_manager": bool(result.get("is_manager", False)),
+    }
 
 
 # ---------------------------------------------------------------------------

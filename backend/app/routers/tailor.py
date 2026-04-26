@@ -70,16 +70,16 @@ async def _retrieve_and_rerank(
     vec_str = "[" + ",".join(str(x) for x in avg_vec) + "]"
 
     # ANN retrieval
+    await db.execute(text("SET LOCAL ivfflat.probes = 15"))
     rows = await db.execute(
         text(
             """
-            SET LOCAL ivfflat.probes = 15;
             SELECT id,
-                   1 - (embedding <=> :vec::vector) AS cosine
+                   1 - (embedding <=> CAST(:vec AS vector)) AS cosine
             FROM   career_facts
             WHERE  user_id = :uid
               AND  embedding IS NOT NULL
-            ORDER  BY embedding <=> :vec::vector
+            ORDER  BY embedding <=> CAST(:vec AS vector)
             LIMIT  :lim
             """
         ),
@@ -137,8 +137,6 @@ async def tailor(
     clerk_id: str = Depends(get_verified_user_id),
 ) -> TailorResponse:
     user_id = await _upsert_user(db, clerk_id)
-    if req.user_id != user_id:
-        raise HTTPException(status_code=403, detail="user_id does not match token")
 
     cached_jd = await db.get(JDCache, req.jd_hash)
     if not cached_jd:
@@ -151,7 +149,7 @@ async def tailor(
 
     # Retrieve and rerank facts
     top_facts = await _retrieve_and_rerank(
-        db, req.user_id, requirements, req.focus_requirement
+        db, user_id, requirements, req.focus_requirement
     )
     if not top_facts:
         raise HTTPException(
@@ -185,19 +183,19 @@ async def tailor(
     # Find parent: latest version for this user (or null if first tailor)
     latest = await db.execute(
         select(ResumeVersion)
-        .where(ResumeVersion.user_id == req.user_id)
+        .where(ResumeVersion.user_id == user_id)
         .order_by(ResumeVersion.created_at.desc())
         .limit(1)
     )
     parent_version = latest.scalars().first()
 
     new_version = ResumeVersion(
-        user_id=req.user_id,
+        user_id=user_id,
         parent_id=parent_version.id if parent_version else None,
         jd_hash=req.jd_hash,
         company=cached_jd.company,
         title=cached_jd.title,
-        diff_json={"diff": [d.model_dump() for d in diff_items]},
+        diff_json={"diff": [d.model_dump(mode="json") for d in diff_items]},
         citation_refs=list(set(all_cited_ids)),
         markdown_content=markdown_content,
         pdf_url=None,   # PDF generation (e.g. WeasyPrint) is an async job; v2
